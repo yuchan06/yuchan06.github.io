@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Markdown 即時編輯器 & PDF 匯出工具</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Inter & Noto Sans TC & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- Marked.js (Markdown 解析器) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- DOMPurify (防範 XSS 攻擊) -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+  <!-- Highlight.js (程式碼語法高亮) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- html2pdf.js (將預覽區塊直接匯出為 PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --font-sans: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      overflow: hidden;
+    }
+
+    /* 編輯器字體與捲軸樣式 */
+    #editor {
+      font-family: var(--font-mono);
+      line-height: 1.7;
+      tab-size: 2;
+    }
+
+    /* 自訂捲軸 */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* 右側 A4 紙張預覽樣式 */
+    .paper-sheet {
+      width: 100%;
+      max-width: 210mm; /* A4 寬度 */
+      min-height: 297mm; /* A4 高度 */
+      background: #ffffff;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+      border: 1px solid #e2e8f0;
+      padding: 20mm 18mm;
+      margin: 0 auto;
+      transition: all 0.2s ease;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        overflow: auto;
+      }
+      .paper-sheet {
+        padding: 24px 20px;
+        min-height: auto;
+      }
+    }
+
+    /* Markdown 渲染排版樣式 (GitHub / Notion 混合風格) */
+    .markdown-body {
+      color: #1e293b;
+      font-size: 15px;
+      line-height: 1.75;
+      word-wrap: break-word;
+    }
+
+    .markdown-body > *:first-child {
+      margin-top: 0 !important;
+    }
+
+    .markdown-body h1 {
+      font-size: 2em;
+      font-weight: 700;
+      color: #0f172a;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 0.35em;
+      margin-top: 1.2em;
+      margin-bottom: 0.75em;
+      line-height: 1.3;
+    }
+
+    .markdown-body h2 {
+      font-size: 1.5em;
+      font-weight: 700;
+      color: #0f172a;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 0.25em;
+      margin-top: 1.4em;
+      margin-bottom: 0.6em;
+      line-height: 1.35;
+    }
+
+    .markdown-body h3 {
+      font-size: 1.25em;
+      font-weight: 600;
+      color: #1e293b;
+      margin-top: 1.25em;
+      margin-bottom: 0.5em;
+    }
+
+    .markdown-body h4 {
+      font-size: 1.05em;
+      font-weight: 600;
+      color: #334155;
+      margin-top: 1.1em;
+      margin-bottom: 0.4em;
+    }
+
+    .markdown-body p {
+      margin-top: 0;
+      margin-bottom: 1em;
+    }
+
+    .markdown-body a {
+      color: #2563eb;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .markdown-body ul, .markdown-body ol {
+      padding-left: 1.6em;
+      margin-bottom: 1em;
+    }
+
+    .markdown-body ul {
+      list-style-type: disc;
+    }
+
+    .markdown-body ol {
+      list-style-type: decimal;
+    }
+
+    .markdown-body li {
+      margin-bottom: 0.35em;
+    }
+
+    .markdown-body li > input[type="checkbox"] {
+      margin-right: 0.5em;
+      accent-color: #2563eb;
+      transform: scale(1.1);
+    }
+
+    .markdown-body blockquote {
+      margin: 1.2em 0;
+      padding: 0.75em 1.1em;
+      color: #475569;
+      background-color: #f8fafc;
+      border-left: 4px solid #3b82f6;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .markdown-body blockquote > :last-child {
+      margin-bottom: 0;
+    }
+
+    .markdown-body code:not(pre code) {
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      background-color: #f1f5f9;
+      color: #e11d48;
+      padding: 0.2em 0.45em;
+      border-radius: 6px;
+    }
+
+    .markdown-body pre {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin: 1.2em 0;
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      line-height: 1.6;
+    }
+
+    .markdown-body pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25em 0;
+      font-size: 0.95em;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    .markdown-body table th,
+    .markdown-body table td {
+      border: 1px solid #cbd5e1;
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    .markdown-body table th {
+      background-color: #f1f5f9;
+      font-weight: 600;
+      color: #0f172a;
+    }
+
+    .markdown-body table tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+
+    .markdown-body hr {
+      border: 0;
+      border-top: 1px solid #e2e8f0;
+      margin: 1.8em 0;
+    }
+
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin: 1em 0;
+    }
+
+    /* 避免 PDF 分頁時元素被硬生生切斷 */
+    .markdown-body pre,
+    .markdown-body blockquote,
+    .markdown-body table,
+    .markdown-body img,
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3 {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    /* 拖曳分隔線樣式 */
+    .resizer {
+      width: 6px;
+      cursor: col-resize;
+      background-color: #e2e8f0;
+      transition: background-color 0.15s;
+      position: relative;
+      z-index: 20;
+    }
+    .resizer:hover, .resizer.active {
+      background-color: #3b82f6;
+    }
+
+    /* 原生瀏覽器列印 / 另存 PDF 最佳化樣式 */
+    @media print {
+      body, html {
+        height: auto !important;
+        overflow: visible !important;
+        background: #ffffff !important;
+      }
+      header, #editor-pane, #resizer, footer, #toast-container {
+        display: none !important;
+      }
+      #main-workspace {
+        display: block !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+      #preview-pane {
+        width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+      }
+      .paper-sheet {
+        box-shadow: none !important;
+        border: none !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col select-none md:select-auto">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 z-30 shadow-sm">
+    <!-- 左側 Logo 與檔案名稱 -->
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
+        <i data-lucide="file-text" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-slate-900 text-base tracking-tight">Markdown 編輯器</h1>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">即時 PDF 預覽</span>
+        </div>
+        <div class="flex items-center gap-1.5 mt-0.5">
+          <span class="text-xs text-slate-400">檔名：</span>
+          <input
+            type="text"
+            id="doc-filename"
+            value="我的Markdown文件"
+            class="text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 focus:bg-white border border-transparent focus:border-blue-400 rounded px-1.5 py-0.5 outline-none transition w-40 sm:w-48"
+            title="點擊修改匯出檔案名稱"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- 右側功能按鈕群 -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <!-- 同步捲動開關 -->
+      <button
+        id="sync-scroll-btn"
+        onclick="toggleSyncScroll()"
+        class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+        title="開啟/關閉左右兩側同步捲動"
+      >
+        <i data-lucide="link-2" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">同步捲動：開</span>
+      </button>
+
+      <!-- 下載 .md 原始檔 -->
+      <button
+        onclick="downloadMarkdown()"
+        class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition shadow-2xs"
+        title="下載原始 .md 文字檔"
+      >
+        <i data-lucide="file-code" class="w-3.5 h-3.5 text-slate-500"></i>
+        <span>下載 .md</span>
+      </button>
+
+      <!-- 原生列印 / 高解析另存 PDF -->
+      <button
+        onclick="window.print()"
+        class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition shadow-2xs"
+        title="使用瀏覽器原生向量列印或另存 PDF"
+      >
+        <i data-lucide="printer" class="w-3.5 h-3.5 text-slate-500"></i>
+        <span class="hidden md:inline">列印預覽</span>
+      </button>
+
+      <!-- 一鍵下載渲染後 PDF -->
+      <button
+        id="download-pdf-btn"
+        onclick="downloadPDF()"
+        class="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm hover:shadow transition cursor-pointer"
+      >
+        <i data-lucide="download" class="w-4 h-4"></i>
+        <span>下載 PDF</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 手機版切換分頁 (僅在小螢幕顯示) -->
+  <div class="flex md:hidden bg-white border-b border-slate-200 p-1.5 gap-1">
+    <button id="tab-edit" onclick="switchMobileTab('edit')" class="flex-1 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition">
+      編輯區
+    </button>
+    <button id="tab-preview" onclick="switchMobileTab('preview')" class="flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100 transition">
+      預覽結果
+    </button>
+  </div>
+
+  <!-- 主工作區：左側編輯器 + 分隔線 + 右側預覽 -->
+  <main id="main-workspace" class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+    <!-- 左側：Markdown 編輯器 -->
+    <section id="editor-pane" class="w-full md:w-1/2 h-full flex flex-col bg-white border-r border-slate-200">
+      <!-- 快捷格式工具列 -->
+      <div class="bg-slate-50/80 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-1 overflow-x-auto">
+        <div class="flex items-center gap-0.5">
+          <button onclick="insertSyntax('**', '**', '粗體文字')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="粗體 (Bold)">
+            <i data-lucide="bold" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertSyntax('*', '*', '斜體文字')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="斜體 (Italic)">
+            <i data-lucide="italic" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertSyntax('~~', '~~', '刪除線')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="刪除線">
+            <i data-lucide="strikethrough" class="w-4 h-4"></i>
+          </button>
+          <div class="w-px h-4 bg-slate-300 mx-1"></div>
+          <button onclick="insertLinePrefix('## ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition font-bold text-xs" title="標題 H2">
+            H2
+          </button>
+          <button onclick="insertLinePrefix('### ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition font-bold text-xs" title="標題 H3">
+            H3
+          </button>
+          <div class="w-px h-4 bg-slate-300 mx-1"></div>
+          <button onclick="insertLinePrefix('- ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="項目清單">
+            <i data-lucide="list" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertLinePrefix('1. ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="編號清單">
+            <i data-lucide="list-ordered" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertLinePrefix('- [ ] ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="待辦核取方塊">
+            <i data-lucide="check-square" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertLinePrefix('> ')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="引用區塊">
+            <i data-lucide="quote" class="w-4 h-4"></i>
+          </button>
+          <div class="w-px h-4 bg-slate-300 mx-1"></div>
+          <button onclick="insertSyntax('`', '`', 'code')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="行內程式碼">
+            <i data-lucide="code" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertBlock('\n```javascript\n// 在此輸入程式碼\nconsole.log(\'Hello World!\');\n```\n')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="多行程式碼區塊">
+            <i data-lucide="file-code-2" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertSyntax('[', '](https://example.com)', '連結文字')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="插入連結">
+            <i data-lucide="link" class="w-4 h-4"></i>
+          </button>
+          <button onclick="insertBlock('\n| 欄位一 | 欄位二 | 欄位三 |\n| :--- | :---: | ---: |\n| 內容 A | 置中內容 | 靠右對齊 |\n| 內容 B | 測試數據 | 100% |\n')" class="p-1.5 rounded hover:bg-slate-200/70 text-slate-600 transition" title="插入表格">
+            <i data-lucide="table" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- 範本與清空按鈕 -->
+        <div class="flex items-center gap-1 shrink-0">
+          <button onclick="loadSampleMarkdown()" class="px-2 py-1 text-[11px] font-medium rounded bg-slate-200/70 hover:bg-slate-300/70 text-slate-700 transition" title="載入示範文件">
+            載入範例
+          </button>
+          <button onclick="clearEditor()" class="px-2 py-1 text-[11px] font-medium rounded hover:bg-red-50 text-slate-500 hover:text-red-600 transition" title="清空編輯器">
+            清空
+          </button>
+        </div>
+      </div>
+
+      <!-- Markdown 文字輸入框 -->
+      <div class="relative flex-1 flex overflow-hidden">
+        <textarea
+          id="editor"
+          class="w-full h-full p-5 sm:p-6 resize-none outline-none text-sm text-slate-800 bg-white selection:bg-blue-100"
+          placeholder="在此輸入 Markdown 語法..."
+          spellcheck="false"
+        ></textarea>
+      </div>
+    </section>
+
+    <!-- 可拖曳分隔條 (僅桌面版) -->
+    <div id="resizer" class="resizer hidden md:block" title="左右拖曳調整視窗比例"></div>
+
+    <!-- 右側：即時預覽截圖 / 文件紙張區 -->
+    <section id="preview-pane" class="hidden md:block w-full md:w-1/2 h-full overflow-y-auto bg-slate-200/70 p-4 sm:p-8">
+      <!-- 預覽區上方提示標籤 -->
+      <div class="max-w-[210mm] mx-auto mb-3 flex items-center justify-between text-xs text-slate-500">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>即時文件預覽（A4 排版比例）</span>
+        </div>
+        <span>匯出 PDF 將完整保留此樣式</span>
+      </div>
+
+      <!-- 模擬紙張區塊 (PDF 擷取目標) -->
+      <div id="pdf-content-wrapper" class="paper-sheet rounded-xl">
+        <article id="preview" class="markdown-body"></article>
+      </div>
+
+      <div class="h-10"></div>
+    </section>
+
+  </main>
+
+  <!-- 底部狀態列 -->
+  <footer class="bg-white border-t border-slate-200 px-4 py-1.5 text-[11px] text-slate-500 flex items-center justify-between z-20">
+    <div class="flex items-center gap-4">
+      <span id="stat-chars">字元數：0</span>
+      <span id="stat-words">字數：0</span>
+      <span id="stat-lines">行數：0</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="save-status" class="text-emerald-600 flex items-center gap-1">
+        <i data-lucide="check-circle-2" class="w-3 h-3"></i>
+        已自動儲存至瀏覽器
+      </span>
+    </div>
+  </footer>
+
+  <!-- Toast 訊息提示框 (取代 alert/confirm) -->
+  <div id="toast-container" class="fixed bottom-10 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    // 預設範例 Markdown 內容
+    const SAMPLE_MARKDOWN = `# 專案進度報告與技術文件範例
+
+歡迎使用 **Markdown 即時編輯器**！左側輸入 Markdown 語法，右側會即時呈現如紙本文件般的排版效果，點擊右上角的 **「下載 PDF」** 即可直接將右側渲染畫面匯出為 PDF 檔案。
+
+---
+
+## 1. 核心功能亮點
+
+- **即時雙向預覽**：支援 GitHub Flavored Markdown (GFM) 標準語法。
+- **程式碼語法高亮**：內建 \`highlight.js\`，支援多種程式語言自動著色。
+- **一鍵匯出 PDF**：自動處理 A4 邊距與防切斷分頁邏輯，無需額外安裝軟體。
+- **本地自動存檔**：內容即時儲存於瀏覽器 \`localStorage\`，重新整理也不會遺失。
+
+### 待辦事項清單 (Task List)
+- [x] 完成左右分割視窗與拖曳調整比例功能
+- [x] 整合 Markdown 解析與 XSS 安全過濾機制
+- [x] 優化 PDF 匯出清晰度與分頁邊界
+- [ ] 分享這份漂亮的 PDF 文件給團隊夥伴
+
+---
+
+## 2. 程式碼範例展示
+
+以下是一段 JavaScript 非同步資料擷取的範例程式碼：
+
+\`\`\`javascript
+/**
+ * 取得使用者專案統計資料
+ * @param {string} userId - 使用者編號
+ */
+async function fetchProjectStats(userId) {
+  try {
+    const response = await fetch(\`https://api.example.com/users/\${userId}/stats\`);
+    const data = await response.json();
+    console.log('成功載入資料：', data);
+    return data;
+  } catch (error) {
+    console.error('資料讀取失敗：', error);
+  }
+}
+\`\`\`
+
+---
+
+## 3. 數據統計表格
+
+| 模組名稱 | 負責人員 | 預計完成日 | 目前狀態 |
+| :--- | :---: | :---: | ---: |
+| 前端編輯器介面 | 陳小華 | 2026-11-28 | 已完成 |
+| PDF 渲染引擎調校 | 林志明 | 2026-11-30 | 測試中 |
+| 行動裝置響應式適配 | 王美玲 | 2026-12-02 | 進行中 |
+
+---
+
+## 4. 引用與重點提示
+
+> **設計小提醒：**
+> 在撰寫技術規格書或會議紀錄時，善用標題層級（\`#\`、\`##\`、\`###\`）與表格，能讓匯出的 PDF 閱讀體驗大幅提升！
+
+您現在可以隨意修改左側的文字，或點擊工具列按鈕來體驗編輯效果。`;
+
+    // DOM 元素參照
+    const editor = document.getElementById('editor');
+    const preview = document.getElementById('preview');
+    const previewPane = document.getElementById('preview-pane');
+    const editorPane = document.getElementById('editor-pane');
+    const resizer = document.getElementById('resizer');
+    const filenameInput = document.getElementById('doc-filename');
+    const statChars = document.getElementById('stat-chars');
+    const statWords = document.getElementById('stat-words');
+    const statLines = document.getElementById('stat-lines');
+    const saveStatus = document.getElementById('save-status');
+
+    let isSyncScroll = true;
+    let activeScrollSource = null;
+    let scrollTimeout = null;
+    const STORAGE_KEY = 'md_pdf_editor_content_v1';
+    const FILENAME_KEY = 'md_pdf_editor_filename_v1';
+
+    // 初始化 Marked 設定
+    marked.setOptions({
+      gfm: true,
+      breaks: true,
+      highlight: function (code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          try {
+            return hljs.highlight(code, { language: lang }).value;
+          } catch (e) {}
+        }
+        return hljs.highlightAuto(code).value;
+      }
+    });
+
+    // 渲染 Markdown 並更新統計資訊
+    function renderMarkdown() {
+      const rawText = editor.value;
+      // 使用 marked 解析並透過 DOMPurify 過濾潛在惡意標籤
+      const rawHtml = marked.parse(rawText);
+      const cleanHtml = DOMPurify.sanitize(rawHtml);
+      preview.innerHTML = cleanHtml;
+
+      // 對未指定語言的區塊補上高亮
+      preview.querySelectorAll('pre code').forEach((block) => {
+        hljs.highlightElement(block);
+      });
+
+      updateStats(rawText);
+      autoSave(rawText);
+    }
+
+    // 更新字數統計
+    function updateStats(text) {
+      const charCount = text.length;
+      // 計算中文字元 + 英文單字數
+      const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+      const englishWords = (text.replace(/[\u4e00-\u9fa5]/g, ' ').trim().match(/\S+/g) || []).length;
+      const totalWords = chineseChars + englishWords;
+      const lineCount = text === '' ? 0 : text.split('\n').length;
+
+      statChars.textContent = `字元數：${charCount.toLocaleString()}`;
+      statWords.textContent = `字數：${totalWords.toLocaleString()}`;
+      statLines.textContent = `行數：${lineCount.toLocaleString()}`;
+    }
+
+    // 自動儲存至 localStorage
+    let saveTimer = null;
+    function autoSave(text) {
+      saveStatus.innerHTML = `<span class="text-slate-400">儲存中...</span>`;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, text);
+          saveStatus.innerHTML = `<i data-lucide="check-circle-2" class="w-3 h-3"></i> 已自動儲存`;
+          lucide.createIcons();
+        } catch (e) {
+          saveStatus.innerHTML = `<span class="text-amber-600">本地儲存空間已滿</span>`;
+        }
+      }, 400);
+    }
+
+    // 顯示輕量提示訊息 (Toast)
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const bgColors = {
+        info: 'bg-slate-800 text-white',
+        success: 'bg-emerald-600 text-white',
+        warning: 'bg-amber-600 text-white',
+        error: 'bg-red-600 text-white'
+      };
+      toast.className = `${bgColors[type] || bgColors.info} px-4 py-2.5 rounded-xl shadow-lg text-xs font-medium flex items-center gap-2 transition-all duration-300 transform translate-y-2 opacity-0`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2800);
+    }
+
+    // 工具列：包裹選取文字或插入語法
+    function insertSyntax(prefix, suffix, placeholder) {
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      const text = editor.value;
+      const selected = text.substring(start, end) || placeholder;
+
+      const replacement = prefix + selected + suffix;
+      editor.setRangeText(replacement, start, end, 'select');
+      editor.focus();
+      // 選取中間文字方便直接覆寫
+      editor.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+      renderMarkdown();
+    }
+
+    // 工具列：在行首插入前綴 (如標題、清單)
+    function insertLinePrefix(prefix) {
+      const start = editor.selectionStart;
+      const text = editor.value;
+      const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+
+      editor.setRangeText(prefix, lineStart, lineStart, 'end');
+      editor.focus();
+      renderMarkdown();
+    }
+
+    // 工具列：插入多行區塊 (如程式碼區塊、表格)
+    function insertBlock(blockText) {
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      editor.setRangeText(blockText, start, end, 'end');
+      editor.focus();
+      renderMarkdown();
+    }
+
+    // 載入範例文件
+    function loadSampleMarkdown() {
+      editor.value = SAMPLE_MARKDOWN;
+      renderMarkdown();
+      showToast('已載入 Markdown 範例文件', 'success');
+    }
+
+    // 清空編輯器 (附帶復原提示)
+    let previousBackup = '';
+    function clearEditor() {
+      if (!editor.value.trim()) return;
+      previousBackup = editor.value;
+      editor.value = '';
+      renderMarkdown();
+      showToast('已清空內容（按 Ctrl+Z / Cmd+Z 可復原）', 'info');
+    }
+
+    // 支援 Tab 鍵縮排
+    editor.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        this.setRangeText('  ', start, end, 'end');
+        renderMarkdown();
+      }
+    });
+
+    // 切換同步捲動
+    function toggleSyncScroll() {
+      isSyncScroll = !isSyncScroll;
+      const btn = document.getElementById('sync-scroll-btn');
+      if (isSyncScroll) {
+        btn.className = 'flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition';
+        btn.innerHTML = `<i data-lucide="link-2" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">同步捲動：開</span>`;
+        showToast('已開啟左右同步捲動', 'info');
+      } else {
+        btn.className = 'flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition';
+        btn.innerHTML = `<i data-lucide="unlink-2" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">同步捲動：關</span>`;
+        showToast('已關閉左右同步捲動', 'info');
+      }
+      lucide.createIcons();
+    }
+
+    // 左右面板同步捲動計算
+    editor.addEventListener('scroll', () => {
+      if (!isSyncScroll || activeScrollSource === 'preview') return;
+      activeScrollSource = 'editor';
+      const maxScroll = editor.scrollHeight - editor.clientHeight;
+      if (maxScroll > 0) {
+        const ratio = editor.scrollTop / maxScroll;
+        previewPane.scrollTop = ratio * (previewPane.scrollHeight - previewPane.clientHeight);
+      }
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => { activeScrollSource = null; }, 80);
+    });
+
+    previewPane.addEventListener('scroll', () => {
+      if (!isSyncScroll || activeScrollSource === 'editor') return;
+      activeScrollSource = 'preview';
+      const maxScroll = previewPane.scrollHeight - previewPane.clientHeight;
+      if (maxScroll > 0) {
+        const ratio = previewPane.scrollTop / maxScroll;
+        editor.scrollTop = ratio * (editor.scrollHeight - editor.clientHeight);
+      }
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => { activeScrollSource = null; }, 80);
+    });
+
+    // 桌面版左右拖曳調整比例
+    let isResizing = false;
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      resizer.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const containerWidth = document.getElementById('main-workspace').clientWidth;
+      let newLeftWidth = (e.clientX / containerWidth) * 100;
+      // 限制最小與最大寬度比例 (25% ~ 75%)
+      newLeftWidth = Math.max(25, Math.min(75, newLeftWidth));
+      editorPane.style.width = `${newLeftWidth}%`;
+      previewPane.style.width = `${100 - newLeftWidth}%`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizer.classList.remove('active');
+        document.body.style.cursor = '';
+      }
+    });
+
+    // 手機版分頁切換
+    function switchMobileTab(tab) {
+      const tabEdit = document.getElementById('tab-edit');
+      const tabPreview = document.getElementById('tab-preview');
+      if (tab === 'edit') {
+        editorPane.classList.remove('hidden');
+        previewPane.classList.add('hidden');
+        tabEdit.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition';
+        tabPreview.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100 transition';
+      } else {
+        editorPane.classList.add('hidden');
+        previewPane.classList.remove('hidden');
+        tabPreview.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition';
+        tabEdit.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100 transition';
+      }
+    }
+
+    // 取得合法的檔案名稱
+    function getSafeFilename(ext) {
+      const raw = filenameInput.value.trim() || 'Markdown文件';
+      const safe = raw.replace(/[\\/:*?"<>|]/g, '_');
+      return `${safe}.${ext}`;
+    }
+
+    // 下載原始 .md 檔案
+    function downloadMarkdown() {
+      const blob = new Blob([editor.value], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getSafeFilename('md');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('已下載 Markdown (.md) 檔案', 'success');
+    }
+
+    // 直接將右側預覽渲染為 PDF 並下載
+    async function downloadPDF() {
+      const btn = document.getElementById('download-pdf-btn');
+      const originalHTML = btn.innerHTML;
+
+      // 若目前在手機版且預覽區被隱藏，暫時顯示以利擷取畫面
+      const wasPreviewHidden = previewPane.classList.contains('hidden');
+      if (wasPreviewHidden) {
+        previewPane.classList.remove('hidden');
+      }
+
+      try {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>產生 PDF 中...</span>`;
+        lucide.createIcons();
+
+        // 建立一個乾淨的離線複製容器，避免捲動條或外框陰影影響 PDF 排版
+        const sourceElement = document.getElementById('preview');
+        const exportContainer = document.createElement('div');
+        exportContainer.className = 'markdown-body';
+        exportContainer.style.width = '180mm'; // A4 扣除左右邊距後的內容寬度
+        exportContainer.style.background = '#ffffff';
+        exportContainer.style.color = '#1e293b';
+        exportContainer.innerHTML = sourceElement.innerHTML;
+
+        const opt = {
+          margin:       [15, 15, 15, 15], // 上、左、下、右邊距 (mm)
+          filename:     getSafeFilename('pdf'),
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  {
+            scale: 2, // 2倍解析度確保文字清晰銳利
+            useCORS: true,
+            letterRendering: true,
+            scrollY: 0
+          },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        await html2pdf().set(opt).from(exportContainer).save();
+        showToast('PDF 匯出成功！', 'success');
+      } catch (err) {
+        console.error('PDF 匯出失敗:', err);
+        showToast('PDF 匯出發生錯誤，建議改用「列印預覽」另存 PDF', 'error');
+      } finally {
+        if (wasPreviewHidden) {
+          previewPane.classList.add('hidden');
+        }
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        lucide.createIcons();
+      }
+    }
+
+    // 檔名變更自動儲存
+    filenameInput.addEventListener('input', () => {
+      try {
+        localStorage.setItem(FILENAME_KEY, filenameInput.value);
+      } catch (e) {}
+    });
+
+    // 監聽輸入即時渲染
+    editor.addEventListener('input', renderMarkdown);
+
+    // 頁面載入初始化
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+
+      try {
+        const savedContent = localStorage.getItem(STORAGE_KEY);
+        const savedFilename = localStorage.getItem(FILENAME_KEY);
+        if (savedFilename) filenameInput.value = savedFilename;
+
+        if (savedContent !== null) {
+          editor.value = savedContent;
+        } else {
+          editor.value = SAMPLE_MARKDOWN;
+        }
+      } catch (e) {
+        editor.value = SAMPLE_MARKDOWN;
+      }
+
+      renderMarkdown();
+    });
+  </script>
+</body>
+</html>
